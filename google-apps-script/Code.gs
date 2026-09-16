@@ -1,4 +1,4 @@
-const SHEET_NAME = 'Strategy Audit Leads';
+const SHEET_NAME = 'Leads';
 
 function doPost(e) {
   try {
