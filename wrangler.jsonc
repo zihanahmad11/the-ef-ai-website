@@ -13,7 +13,7 @@
     {
       "binding": "LEADS",
       "database_name": "the-ef-ai-leads",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "e3a0d219-bfed-4cd1-8b0d-553a21c315a9",
       "migrations_dir": "migrations"
     }
   ],
