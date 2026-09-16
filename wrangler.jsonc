@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "the-ef-ai",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-12",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "LEADS",
+      "database_name": "the-ef-ai-leads",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "NOTIFY_LEADS",
+      "destination_address": "theefai.agent@gmail.com"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://theefai.com,https://www.theefai.com",
+    "TURNSTILE_HOSTNAMES": "theefai.com,www.theefai.com"
+  },
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": true }
+}
