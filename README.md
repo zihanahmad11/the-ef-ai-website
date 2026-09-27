@@ -4,7 +4,7 @@ This package contains the production website, strategy-audit form, Cloudflare Wo
 
 ## Architecture
 
-- Cloudflare Workers Static Assets serves `public/`.
+- Cloudflare Workers Static Assets Serves `public/`.
 - `POST /api/strategy-audit` validates and processes the form.
 - Cloudflare Turnstile blocks automated submissions.
 - Cloudflare D1 is the authoritative lead store.
