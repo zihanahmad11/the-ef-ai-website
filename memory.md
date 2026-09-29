@@ -1,4 +1,4 @@
-# The EF Ai Website — Project Memory
+# The EF Ai Website — Project Memory.
 
 ## Purpose
 
