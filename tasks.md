@@ -15,6 +15,8 @@ Review, version, and deploy the updated homepage and dedicated About page withou
 - [x] Configure internal lead email through `NOTIFY_LEADS`.
 - [x] Configure Apps Script authentication, Google Sheets synchronisation, reference deduplication, and visitor confirmation email.
 - [x] Add scheduled retries for failed delivery channels.
+- [x] Bound notification retries with durable per-channel attempt metadata, backoff, and terminal-failure handling.
+- [x] Guard visitor confirmations by reference so successful Worker retries do not resend them.
 - [x] Confirm submitted form fields display correctly in the `Leads` Sheet.
 - [x] Confirm visitor confirmation email works after Apps Script authorisation.
 - [x] Add practical implementation examples below the integrations section.
@@ -50,8 +52,6 @@ Review, version, and deploy the updated homepage and dedicated About page withou
 
 - [ ] Adopt and document a lead-retention policy.
 - [ ] Add reliable automated checks for Worker validation and retry behaviour.
-- [ ] Consider a delivery-attempt counter, retry backoff, and terminal-failure status.
 - [ ] Track Sheets synchronisation separately from visitor-email delivery if the Apps Script flow is split.
 - [ ] Review legal and privacy copy after incorporation or a material provider/market change.
 - [ ] Add future social profiles only when official pages exist.
-

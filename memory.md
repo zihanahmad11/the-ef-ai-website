@@ -35,8 +35,8 @@ This is a durable decision log for future maintainers and AI tools. It records v
 - Turnstile was configured for both production hostnames.
 - The Worker validates the secret, action, and hostname.
 - D1 persistence, internal notification, Apps Script/Sheets delivery, and visitor confirmation were connected.
-- A 15-minute Cloudflare cron retries failed notification channels.
-- The Apps Script uses a shared secret and deduplicates Sheet rows by public reference.
+- A 15-minute Cloudflare cron retries only due failed notification channels. D1 stores per-channel attempts and retry timestamps; backoff is 15 minutes, 30 minutes, 1 hour, then 4 hours, and the fifth failed attempt becomes `terminal_failed`.
+- The Apps Script uses a shared secret, deduplicates Sheet rows by public reference, and records `Confirmation sent at` so a repeated successful request does not resend the visitor email.
 - After correcting Apps Script properties and authorising email permission, Sheet updates and visitor confirmation were reported working.
 
 ### 2026-09 — Company credibility and content structure

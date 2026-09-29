@@ -4,11 +4,14 @@ function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents || '{}');
     const props = PropertiesService.getScriptProperties();
-    if (!payload.sharedSecret || payload.sharedSecret !== props.getProperty('SHARED_SECRET')) {
+    const expectedSecret = props.getProperty('SHARED_SECRET');
+    if (!expectedSecret || !payload.sharedSecret || payload.sharedSecret !== expectedSecret) {
       return output({ ok: false, message: 'Unauthorized' });
     }
     const spreadsheetId = props.getProperty('SPREADSHEET_ID');
     if (!spreadsheetId) throw new Error('SPREADSHEET_ID is not configured.');
+    const reference = safe(payload.reference);
+    if (!reference) throw new Error('Lead reference is missing.');
     const lock = LockService.getScriptLock();
     lock.waitLock(10000);
     try {
@@ -16,14 +19,21 @@ function doPost(e) {
       let sheet = file.getSheetByName(SHEET_NAME);
       if (!sheet) sheet = file.insertSheet(SHEET_NAME);
       if (sheet.getLastRow() === 0) {
-        sheet.appendRow(['Reference','Submitted at','Full name','Work email','Phone / WhatsApp','Business name','Primary automation need','Monthly enquiry volume','Project details','Source page','UTM source','UTM medium','UTM campaign','Status']);
+        sheet.appendRow(['Reference','Submitted at','Full name','Work email','Phone / WhatsApp','Business name','Primary automation need','Monthly enquiry volume','Project details','Source page','UTM source','UTM medium','UTM campaign','Status','Confirmation sent at']);
         sheet.setFrozenRows(1);
       }
-      const reference = safe(payload.reference);
-      const existing = sheet.getRange('A:A').createTextFinder(reference).matchEntireCell(true).findNext();
-      if (!existing) sheet.appendRow([reference,safe(payload.createdAt),safe(payload.fullName),safe(payload.workEmail),safe(payload.phone),safe(payload.businessName),safe(payload.automationNeed),safe(payload.monthlyVolume),safe(payload.projectDetails),safe(payload.sourcePage),safe(payload.utmSource),safe(payload.utmMedium),safe(payload.utmCampaign),'New']);
+      if (!sheet.getRange(1, 15).getValue()) sheet.getRange(1, 15).setValue('Confirmation sent at');
+      let existing = sheet.getRange('A:A').createTextFinder(reference).matchEntireCell(true).findNext();
+      if (!existing) {
+        sheet.appendRow([reference,safe(payload.createdAt),safe(payload.fullName),safe(payload.workEmail),safe(payload.phone),safe(payload.businessName),safe(payload.automationNeed),safe(payload.monthlyVolume),safe(payload.projectDetails),safe(payload.sourcePage),safe(payload.utmSource),safe(payload.utmMedium),safe(payload.utmCampaign),'New','']);
+        existing = sheet.getRange(sheet.getLastRow(), 1);
+      }
+      const confirmationCell = sheet.getRange(existing.getRow(), 15);
+      if (!confirmationCell.getValue()) {
+        sendConfirmation(payload);
+        confirmationCell.setValue(new Date());
+      }
     } finally { lock.releaseLock(); }
-    sendConfirmation(payload);
     return output({ ok: true });
   } catch (error) {
     console.error(error);
@@ -50,4 +60,8 @@ function htmlEscape(value) {
 
 function output(data) {
   return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function authorizeEmail() {
+  console.log(MailApp.getRemainingDailyQuota());
 }

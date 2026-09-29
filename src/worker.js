@@ -1,6 +1,13 @@
 const JSON_HEADERS={"content-type":"application/json;charset=UTF-8","cache-control":"no-store","x-content-type-options":"nosniff"};
 const AUTOMATION_NEEDS=new Set(["AI inbound receptionist","Outbound speed-to-lead","Lead qualification","Appointment booking","WhatsApp or Messenger agent","Warm handoffs","Surveys and feedback","CRM integration","Multiple automations","Not sure yet"]);
 const VOLUMES=new Set(["Fewer than 50","50–100","101–250","251–500","501–1,000","More than 1,000","Not sure"]);
+const MAX_DELIVERY_ATTEMPTS=5;
+const RETRY_DELAYS_MINUTES=[15,30,60,240];
+const DELIVERY_CLAIM_TIMEOUT_MINUTES=30;
+const DELIVERY_CHANNELS={
+  internal:{status:"internal_email_status",attempts:"internal_email_attempts",nextRetry:"internal_email_next_retry_at",lastAttempt:"internal_email_last_attempt_at"},
+  customer:{status:"customer_email_status",attempts:"customer_email_attempts",nextRetry:"customer_email_next_retry_at",lastAttempt:"customer_email_last_attempt_at"}
+};
 
 export default {
   async fetch(request,env,ctx){
@@ -59,16 +66,35 @@ async function verifyTurnstile(token,ip,secret){
 
 async function deliverNotifications(lead,env,current={internal:"pending",customer:"pending"}){
   const safe=Object.fromEntries(Object.entries(lead).map(([k,v])=>[k,escapeHtml(v)]));
-  if(current.internal!=="sent"){
-    let status="failed";try{await env.NOTIFY_LEADS.send({to:"theefai.agent@gmail.com",from:{email:"forms@theefai.com",name:"The EF Ai"},replyTo:lead.workEmail,subject:`New AI Strategy Audit — ${lead.businessName} — ${lead.reference}`,html:`<h2>New AI Strategy Audit</h2><p><b>Reference:</b> ${safe.reference}</p><p><b>Name:</b> ${safe.fullName}<br><b>Work email:</b> ${safe.workEmail}<br><b>Phone/WhatsApp:</b> ${safe.phone||"Not supplied"}<br><b>Business:</b> ${safe.businessName}<br><b>Primary need:</b> ${safe.automationNeed}<br><b>Monthly enquiries:</b> ${safe.monthlyVolume}</p><p><b>What they want to automate</b></p><p>${safe.projectDetails.replaceAll("\n","<br>")}</p>`,text:`New AI Strategy Audit\nReference: ${lead.reference}\nName: ${lead.fullName}\nEmail: ${lead.workEmail}\nPhone/WhatsApp: ${lead.phone||"Not supplied"}\nBusiness: ${lead.businessName}\nPrimary need: ${lead.automationNeed}\nMonthly enquiries: ${lead.monthlyVolume}\n\n${lead.projectDetails}`});status="sent"}catch(error){console.error("Internal notification failed",lead.reference,error)}await env.LEADS.prepare("UPDATE leads SET internal_email_status=? WHERE id=?").bind(status,lead.id).run();
+  if(current.internal==="pending"||current.internal==="failed"){
+    await attemptDelivery(lead,env,"internal",async()=>env.NOTIFY_LEADS.send({to:"theefai.agent@gmail.com",from:{email:"forms@theefai.com",name:"The EF Ai"},replyTo:lead.workEmail,subject:`New AI Strategy Audit — ${lead.businessName} — ${lead.reference}`,html:`<h2>New AI Strategy Audit</h2><p><b>Reference:</b> ${safe.reference}</p><p><b>Name:</b> ${safe.fullName}<br><b>Work email:</b> ${safe.workEmail}<br><b>Phone/WhatsApp:</b> ${safe.phone||"Not supplied"}<br><b>Business:</b> ${safe.businessName}<br><b>Primary need:</b> ${safe.automationNeed}<br><b>Monthly enquiries:</b> ${safe.monthlyVolume}</p><p><b>What they want to automate</b></p><p>${safe.projectDetails.replaceAll("\n","<br>")}</p>`,text:`New AI Strategy Audit\nReference: ${lead.reference}\nName: ${lead.fullName}\nEmail: ${lead.workEmail}\nPhone/WhatsApp: ${lead.phone||"Not supplied"}\nBusiness: ${lead.businessName}\nPrimary need: ${lead.automationNeed}\nMonthly enquiries: ${lead.monthlyVolume}\n\n${lead.projectDetails}`}));
   }
-  if(current.customer!=="sent"){
-    let status="failed";try{const response=await fetch(env.APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:JSON.stringify({...lead,sharedSecret:env.APPS_SCRIPT_SHARED_SECRET})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.message||"Apps Script rejected request");status="sent"}catch(error){console.error("Customer confirmation failed",lead.reference,error)}await env.LEADS.prepare("UPDATE leads SET customer_email_status=? WHERE id=?").bind(status,lead.id).run();
+  if(current.customer==="pending"||current.customer==="failed"){
+    await attemptDelivery(lead,env,"customer",async()=>{const response=await fetch(env.APPS_SCRIPT_URL,{method:"POST",headers:{"Content-Type":"text/plain;charset=UTF-8"},body:JSON.stringify({...lead,sharedSecret:env.APPS_SCRIPT_SHARED_SECRET})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.message||"Apps Script rejected request")});
+  }
+}
+
+async function attemptDelivery(lead,env,channel,send){
+  const columns=DELIVERY_CHANNELS[channel];
+  const claim=await env.LEADS.prepare(`UPDATE leads SET ${columns.status}='sending',${columns.attempts}=${columns.attempts}+1,${columns.lastAttempt}=? ,${columns.nextRetry}=NULL WHERE id=? AND ${columns.status} IN ('pending','failed') AND ${columns.attempts}<? AND (${columns.status}='pending' OR ${columns.nextRetry} IS NULL OR ${columns.nextRetry}<=?) RETURNING ${columns.attempts} AS attempts`).bind(new Date().toISOString(),lead.id,MAX_DELIVERY_ATTEMPTS,new Date().toISOString()).first();
+  if(!claim)return;
+  try{
+    await send();
+    await env.LEADS.prepare(`UPDATE leads SET ${columns.status}='sent',${columns.nextRetry}=NULL WHERE id=? AND ${columns.status}='sending'`).bind(lead.id).run();
+  }catch(error){
+    const terminal=claim.attempts>=MAX_DELIVERY_ATTEMPTS;
+    const nextRetry=terminal?null:new Date(Date.now()+RETRY_DELAYS_MINUTES[claim.attempts-1]*60000).toISOString();
+    console.error(`${channel} notification failed`,lead.reference,`attempt ${claim.attempts}`,error);
+    await env.LEADS.prepare(`UPDATE leads SET ${columns.status}=?,${columns.nextRetry}=? WHERE id=? AND ${columns.status}='sending'`).bind(terminal?"terminal_failed":"failed",nextRetry,lead.id).run();
   }
 }
 
 async function retryFailedNotifications(env){
-  const {results=[]}=await env.LEADS.prepare("SELECT * FROM leads WHERE internal_email_status='failed' OR customer_email_status='failed' ORDER BY created_at ASC LIMIT 20").all();
+  const now=new Date().toISOString();
+  const staleBefore=new Date(Date.now()-DELIVERY_CLAIM_TIMEOUT_MINUTES*60000).toISOString();
+  await env.LEADS.prepare("UPDATE leads SET internal_email_status=CASE WHEN internal_email_attempts>=? THEN 'terminal_failed' ELSE 'failed' END,internal_email_next_retry_at=CASE WHEN internal_email_attempts>=? THEN NULL ELSE ? END WHERE internal_email_status='sending' AND internal_email_last_attempt_at<=?").bind(MAX_DELIVERY_ATTEMPTS,MAX_DELIVERY_ATTEMPTS,now,staleBefore).run();
+  await env.LEADS.prepare("UPDATE leads SET customer_email_status=CASE WHEN customer_email_attempts>=? THEN 'terminal_failed' ELSE 'failed' END,customer_email_next_retry_at=CASE WHEN customer_email_attempts>=? THEN NULL ELSE ? END WHERE customer_email_status='sending' AND customer_email_last_attempt_at<=?").bind(MAX_DELIVERY_ATTEMPTS,MAX_DELIVERY_ATTEMPTS,now,staleBefore).run();
+  const {results=[]}=await env.LEADS.prepare("SELECT * FROM leads WHERE (internal_email_status='failed' AND internal_email_attempts<? AND (internal_email_next_retry_at IS NULL OR internal_email_next_retry_at<=?)) OR (customer_email_status='failed' AND customer_email_attempts<? AND (customer_email_next_retry_at IS NULL OR customer_email_next_retry_at<=?)) ORDER BY created_at ASC LIMIT 20").bind(MAX_DELIVERY_ATTEMPTS,now,MAX_DELIVERY_ATTEMPTS,now).all();
   for(const row of results){const lead={id:row.id,reference:row.reference,createdAt:row.created_at,fullName:row.full_name,workEmail:row.work_email,phone:row.phone,businessName:row.business_name,automationNeed:row.automation_need,monthlyVolume:row.monthly_volume,projectDetails:row.project_details,sourcePage:row.source_page,utmSource:row.utm_source,utmMedium:row.utm_medium,utmCampaign:row.utm_campaign};await deliverNotifications(lead,env,{internal:row.internal_email_status,customer:row.customer_email_status})}
 }
 

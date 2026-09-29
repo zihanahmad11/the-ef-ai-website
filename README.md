@@ -74,6 +74,7 @@ Cloudflare requires the token to be validated on the server. The included Worker
 Do not use the `/dev` test URL in production.
 
 The Apps Script safely prefixes spreadsheet values beginning with formula characters to reduce spreadsheet-formula injection risk.
+It also uses the lead reference and a `Confirmation sent at` column to avoid resending a visitor confirmation when the Worker repeats a successful Apps Script request whose response was lost.
 
 ## 5. Configure internal email
 
@@ -158,6 +159,8 @@ Complete these tests before advertising the site:
 - Review the Google Sheet and internal notifications daily.
 - Never delete D1 leads until a documented retention period is adopted.
 - Check Worker logs when either email status is `failed`.
+- Delivery attempts are counted independently for the internal and visitor channels. Failed attempts back off for 15 minutes, 30 minutes, 1 hour, then 4 hours; a fifth failure is marked `terminal_failed` for manual investigation instead of being retried forever.
+- Before deploying this Worker version, apply migration `0002_bounded_delivery_retries.sql` with `npm run db:migrate:remote`, then deploy the matching Apps Script version.
 - Rotate the Apps Script shared secret and IP salt if either is exposed.
 - Google Apps Script mail quotas apply. With only the visitor confirmation sent through Apps Script, a consumer Google account currently supports roughly 100 confirmations per day.
 

@@ -46,6 +46,8 @@ src/
   worker.js                  Request routing, validation, persistence, delivery, retries
 migrations/
   0001_leads.sql             D1 schema and indexes
+  0002_bounded_delivery_retries.sql
+                             Per-channel retry metadata and indexes
 google-apps-script/
   Code.gs                    Sheets deduplication and visitor confirmation
 wrangler.jsonc               Worker, assets, D1, email, variables, cron, observability
@@ -81,8 +83,11 @@ README.md                    Operator setup and acceptance checks
 - D1 is authoritative; Google Sheets is an operational copy.
 - `reference` is unique in D1.
 - Apps Script checks column A for the reference before appending, preventing duplicate rows during retries.
+- Apps Script records `Confirmation sent at` on the reference's row and sends the visitor confirmation only while that cell is empty. The script lock covers the check, send, and marker update so concurrent Worker calls cannot both send it.
 - Internal and customer delivery statuses are tracked separately.
-- The scheduled handler queries failed channels every 15 minutes, up to 20 records per run.
+- Each channel stores its attempt count, last-attempt time, and next-retry time in D1. An atomic `sending` claim prevents overlapping cron runs from attempting the same channel concurrently; a claim left behind by an interrupted invocation is recovered after 30 minutes and still counts toward the limit.
+- The first failure is retried after 15 minutes, then after 30 minutes, 1 hour, and 4 hours. The fifth failed attempt becomes `terminal_failed` and is no longer selected automatically.
+- The scheduled handler queries only due `failed` channels every 15 minutes, up to 20 records per run.
 - A channel already marked `sent` is not sent again.
 
 ## Configuration
@@ -118,4 +123,3 @@ Only names and purposes belong in documentation. Values must remain in the relev
 - Local commands are documented in `README.md`.
 - Schema changes require a new numbered migration; never rewrite a migration already applied to production.
 - Production acceptance requires separate checks for the browser result, D1, Sheets, internal email, and visitor email.
-
