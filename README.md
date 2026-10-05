@@ -1,4 +1,4 @@
-# The EF Ai — Cloudflare Deployment
+# The EF Ai — Cloudflare Deployment.
 
 This package contains the production website, strategy-audit form, Cloudflare Worker API, D1 migration, Turnstile integration, internal notification, Google Sheets synchronization, and visitor confirmation email.
 
